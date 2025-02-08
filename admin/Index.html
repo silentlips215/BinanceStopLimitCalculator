@@ -8,3 +8,14 @@
 <body>
 </body>
 </html>
+
+<script>
+    if(!document.getElementById("cms")){
+        const cmsDiv = document.createElement("div");
+        cmsDiv.id = "cms";
+
+        document.body.appendChild(cmsDiv);
+    }
+    // CMS.init();
+    NetlifyCMVS.init();
+</script>
