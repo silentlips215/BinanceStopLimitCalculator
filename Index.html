@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Binance Stop Limit Profit Calculator</title>
+  <style>
+    /* Base styles */
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      max-width: 500px;
+      margin: auto;
+      background-color: #f7f7f7;
+    }
+    h1 {
+      text-align: center;
+      font-size: 1.8em;
+    }
+    label {
+      display: block;
+      margin-top: 15px;
+      font-weight: bold;
+      font-size: 1em;
+    }
+    input, select {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+      box-sizing: border-box;
+      font-size: 1em;
+    }
+    /* Radio group styling for horizontal alignment */
+    .radio-group {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-top: 5px;
+    }
+    .radio-group label {
+      font-weight: normal;
+      margin-right: 5px;
+    }
+    button {
+      margin-top: 20px;
+      padding: 10px;
+      width: 100%;
+      font-size: 1em;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    /* Responsive result text styling */
+    .result {
+      margin-top: 20px;
+      padding: 15px;
+      background-color: #e9ecef;
+      border-radius: 5px;
+      white-space: pre-line;
+      /* Base font size */
+      font-size: 1em;
+    }
+    /* Smaller screens */
+    @media only screen and (max-width: 480px) {
+      .result {
+        font-size: 0.8em;
+      }
+      h1 {
+        font-size: 1.5em;
+      }
+      label, input, select, button {
+        font-size: 0.9em;
+      }
+    }
+    /* Larger screens */
+    @media only screen and (min-width: 1024px) {
+      .result {
+        font-size: 1.2em;
+      }
+      h1 {
+        font-size: 2em;
+      }
+      label, input, select, button {
+        font-size: 1.1em;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Stop Limit Profit Calculator</h1>
+  <div>
+    <!-- Search field for coins -->
+    <label for="coinSearch">Search Coin:</label>
+    <input type="text" id="coinSearch" placeholder="Type to search coin..." />
+
+    <!-- Coin Selector -->
+    <label for="coinSelector">Select Coin (USDT Pair):</label>
+    <select id="coinSelector">
+      <option value="">Loading coins...</option>
+    </select>
+
+    <!-- Investment amount -->
+    <label for="investment">Investment Amount:</label>
+    <input type="number" id="investment" placeholder="Enter amount" />
+
+    <!-- Investment type: USDT or number of Coins -->
+    <label for="investmentType">Investment Type:</label>
+    <select id="investmentType">
+      <option value="USDT">USDT (investment value)</option>
+      <option value="Coin">Coin (number of coins)</option>
+    </select>
+
+    <!-- Price Source selection -->
+    <label>Entry Price Source:</label>
+    <div class="radio-group">
+      <div>
+        <input type="radio" id="priceSourceMarket" name="priceSource" value="market" checked>
+        <label for="priceSourceMarket">Market Price</label>
+      </div>
+      <div>
+        <input type="radio" id="priceSourceManual" name="priceSource" value="manual">
+        <label for="priceSourceManual">Manual Entry</label>
+      </div>
+    </div>
+
+    <!-- Entry price (auto-filled if Market Price is selected) -->
+    <label for="entryPrice">Entry Price (USDT per coin):</label>
+    <input type="number" id="entryPrice" placeholder="Enter your entry price" step="0.01" disabled />
+
+    <!-- Stop-limit trigger price -->
+    <label for="triggerPrice">Stop Limit Trigger Price (USDT per coin):</label>
+    <input type="number" id="triggerPrice" placeholder="Enter your trigger price" step="0.01" />
+
+    <!-- Calculate button -->
+    <button onclick="calculateProfit()">Calculate Profit</button>
+
+    <!-- Result display -->
+    <div class="result" id="result"></div>
+  </div>
+
+  <script>
+    // Global objects to store coin prices and the full coin list.
+    let coinPrices = {};
+    let coinsList = []; // This will be loaded only once on the first fetch.
+
+    // Function to update the coin selector based on the current coinsList and search filter.
+    function updateCoinSelector() {
+      const coinSelect = document.getElementById('coinSelector');
+      const searchValue = document.getElementById('coinSearch').value.toLowerCase().trim();
+      const previousSelection = coinSelect.value; // Preserve user's selection.
+      coinSelect.innerHTML = ""; // Clear existing options.
+
+      // Filter coinsList based on search query (by symbol or coin name).
+      const filteredCoins = coinsList.filter(coin =>
+        coin.symbol.toLowerCase().includes(searchValue) ||
+        coin.coinName.toLowerCase().includes(searchValue)
+      );
+
+      // Populate the dropdown with the filtered coins.
+      filteredCoins.forEach(coin => {
+        const option = document.createElement('option');
+        option.value = coin.symbol;
+        option.text = `${coin.coinName} (Current: ${coin.price.toFixed(2)} USDT)`;
+        coinSelect.appendChild(option);
+      });
+
+      // Restore previous selection if it still exists.
+      if (previousSelection) {
+        coinSelect.value = previousSelection;
+      }
+      updateEntryPriceState();
+    }
+
+    // Function to update the entry price field state based on the selected price source.
+    function updateEntryPriceState() {
+      const priceSource = document.querySelector('input[name="priceSource"]:checked').value;
+      const entryPriceInput = document.getElementById('entryPrice');
+      const coinSelector = document.getElementById('coinSelector');
+      const selectedSymbol = coinSelector.value;
+
+      if (priceSource === "market") {
+        entryPriceInput.disabled = true;
+        if (selectedSymbol && coinPrices[selectedSymbol]) {
+          entryPriceInput.value = coinPrices[selectedSymbol].toFixed(2);
+        } else {
+          entryPriceInput.value = "";
+        }
+      } else {
+        entryPriceInput.disabled = false;
+      }
+    }
+
+    // Function to fetch coin prices from Binance API.
+    // On the first load, the coinsList and dropdown are fully initialized.
+    // On subsequent fetches, only the prices are updated without repopulating the dropdown.
+    function fetchCoinPrices() {
+      fetch('https://api.binance.com/api/v3/ticker/price')
+        .then(response => response.json())
+        .then(data => {
+          // Filter to include only USDT pairs and sort alphabetically.
+          const usdtPairs = data.filter(item => item.symbol.endsWith('USDT'));
+          usdtPairs.sort((a, b) => a.symbol.localeCompare(b.symbol));
+
+          // Update the coinPrices dictionary.
+          usdtPairs.forEach(item => {
+            coinPrices[item.symbol] = parseFloat(item.price);
+          });
+
+          // If coinsList is empty, initialize it and populate the dropdown.
+          if (coinsList.length === 0) {
+            coinsList = usdtPairs.map(item => {
+              return {
+                symbol: item.symbol,
+                coinName: item.symbol.slice(0, -4),
+                price: parseFloat(item.price)
+              };
+            });
+            updateCoinSelector();
+          } else {
+            // Update the price in the coinsList array.
+            coinsList.forEach(coin => {
+              if (coinPrices[coin.symbol]) {
+                coin.price = coinPrices[coin.symbol];
+              }
+            });
+            // Check the search field. If empty, update only the option texts to preserve selection.
+            const searchValue = document.getElementById('coinSearch').value.trim();
+            const coinSelect = document.getElementById('coinSelector');
+            if (searchValue === "") {
+              // Update the text of each existing option.
+              for (let i = 0; i < coinSelect.options.length; i++) {
+                let option = coinSelect.options[i];
+                let symbol = option.value;
+                if (coinPrices[symbol]) {
+                  option.text = symbol.slice(0, -4) + ' (Current: ' + coinPrices[symbol].toFixed(2) + ' USDT)';
+                }
+              }
+            } else {
+              // If the user is using the search field, reapply the filter.
+              updateCoinSelector();
+            }
+          }
+          updateEntryPriceState();
+        })
+        .catch(error => {
+          console.error("Error fetching coin data: ", error);
+          document.getElementById('coinSelector').innerHTML = '<option value="">Error loading coins</option>';
+        });
+    }
+
+    // Event listeners.
+    document.getElementById('priceSourceMarket').addEventListener('change', updateEntryPriceState);
+    document.getElementById('priceSourceManual').addEventListener('change', updateEntryPriceState);
+    document.getElementById('coinSelector').addEventListener('change', updateEntryPriceState);
+    document.getElementById('coinSearch').addEventListener('input', updateCoinSelector);
+
+    // Fetch coin prices every 5 seconds.
+    setInterval(fetchCoinPrices, 5000);
+    // Also fetch coin prices when the page loads.
+    document.addEventListener('DOMContentLoaded', fetchCoinPrices);
+
+    // Function to calculate profit.
+    function calculateProfit() {
+      const investment = parseFloat(document.getElementById('investment').value);
+      const investmentType = document.getElementById('investmentType').value;
+      const entryPrice = parseFloat(document.getElementById('entryPrice').value);
+      const triggerPrice = parseFloat(document.getElementById('triggerPrice').value);
+
+      // Validate inputs.
+      if (isNaN(investment) || isNaN(entryPrice) || isNaN(triggerPrice)) {
+        document.getElementById('result').innerText = "Please enter valid numbers for all fields.";
+        return;
+      }
+      if (entryPrice <= 0) {
+        document.getElementById('result').innerText = "Entry price must be greater than zero.";
+        return;
+      }
+
+      let quantity, costBasis;
+      if (investmentType === "USDT") {
+        quantity = investment / entryPrice;
+        costBasis = investment;
+      } else {
+        quantity = investment;
+        costBasis = quantity * entryPrice;
+      }
+
+      const profitPerCoin = triggerPrice - entryPrice;
+      const profitUSDT = quantity * profitPerCoin;
+      const profitPercent = (profitUSDT / costBasis) * 100;
+
+      let resultText = "";
+      resultText += "Coin: " + document.getElementById('coinSelector').selectedOptions[0].text + "\n";
+      resultText += "Quantity: " + quantity.toFixed(6) + " coins\n";
+      resultText += "Profit: " + profitUSDT.toFixed(2) + " USDT\n";
+      resultText += "Profit Percentage: " + profitPercent.toFixed(2) + "%";
+
+      document.getElementById('result').innerText = resultText;
+    }
+  </script>
+</body>
+</html>
